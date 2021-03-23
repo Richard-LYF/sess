@@ -66,7 +66,7 @@ class VoteNet(nn.Module):
         self.pnet = ProposalModule(num_class, num_heading_bin, num_size_cluster,
             mean_size_arr, num_proposal, sampling)
 
-    def forward(self, inputs):
+    def forward(self, inputs,stu_end_points=None):#2021.2.28
         """ Forward pass of the network
 
         Args:
@@ -83,9 +83,12 @@ class VoteNet(nn.Module):
         """
         end_points = {}
         batch_size = inputs['point_clouds'].shape[0]
-
-        end_points = self.backbone_net(inputs['point_clouds'], end_points)
-                
+        if stu_end_points is not None: #2021.2.28
+            #print('1. backbone_net into the add layer')
+            end_points = self.backbone_net(inputs['point_clouds'], end_points,stu_end_points)
+        else:
+            #print('1. old layer')
+            end_points = self.backbone_net(inputs['point_clouds'], end_points)
         # --------- HOUGH VOTING ---------
         xyz = end_points['fp2_xyz']
         features = end_points['fp2_features']
@@ -98,9 +101,12 @@ class VoteNet(nn.Module):
         features = features.div(features_norm.unsqueeze(1))
         end_points['vote_xyz'] = xyz
         end_points['vote_features'] = features
-
-        end_points = self.pnet(xyz, features, end_points)
-
+        if stu_end_points is not None: #2021.2.28
+            #print('2.proposal module into the add layer')
+            end_points = self.pnet(xyz, features, end_points,stu_end_points)
+        else:
+            #print('2.old layer')
+            end_points = self.pnet(xyz, features, end_points)
         return end_points
 
 

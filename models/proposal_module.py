@@ -15,6 +15,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(os.path.join(ROOT_DIR, 'pointnet2'))
 from pointnet2_modules import PointnetSAModuleVotes
+#from GCN import *
 import pointnet2_utils
 
 def decode_scores(net, end_points, num_class, num_heading_bin, num_size_cluster, mean_size_arr):
@@ -73,11 +74,11 @@ class ProposalModule(nn.Module):
         # heading class+residual (num_heading_bin*2), size class+residual(num_size_cluster*4)
         self.conv1 = torch.nn.Conv1d(128,128,1)
         self.conv2 = torch.nn.Conv1d(128,128,1)
-        self.conv3 = torch.nn.Conv1d(128,2+3+num_heading_bin*2+num_size_cluster*4+self.num_class,1)
+        self.conv3 = torch.nn.Conv1d(128,2+3+num_heading_bin*2+num_size_cluster*4+self.num_class,1) #2+3+1*2+18*4+18
         self.bn1 = torch.nn.BatchNorm1d(128)
         self.bn2 = torch.nn.BatchNorm1d(128)
 
-    def forward(self, xyz, features, end_points):
+    def forward(self, xyz, features, end_points, stu_end_points=None):  # 2020.2.28
         """
         Args:
             xyz: (B,K,3)
@@ -87,18 +88,32 @@ class ProposalModule(nn.Module):
         """
         if self.sampling == 'vote_fps':
             # Farthest point sampling (FPS) on votes
-            xyz, features, fps_inds = self.vote_aggregation(xyz, features)
-            sample_inds = fps_inds
+            if stu_end_points is not None:
+                sample_inds = stu_end_points['aggregated_vote_inds']
+                xyz, features, _ = self.vote_aggregation(xyz, features, sample_inds)
+            else:
+                xyz, features, fps_inds = self.vote_aggregation(xyz, features)
+                sample_inds = fps_inds
         elif self.sampling == 'seed_fps': 
             # FPS on seed and choose the votes corresponding to the seeds
             # This gets us a slightly better coverage of *object* votes than vote_fps (which tends to get more cluster votes)
-            sample_inds = pointnet2_utils.furthest_point_sample(end_points['seed_xyz'], self.num_proposal)
-            xyz, features, _ = self.vote_aggregation(xyz, features, sample_inds)
+            if stu_end_points is not None:#2021.2.28
+                #print('3. inside the proposal module, into the add layer')
+                sample_inds = stu_end_points['aggregated_vote_inds']
+                xyz, features, _ = self.vote_aggregation(xyz, features, sample_inds)
+            else:
+                #print('3. old layer')
+                sample_inds = pointnet2_utils.furthest_point_sample(end_points['seed_xyz'], self.num_proposal)
+                xyz, features, _ = self.vote_aggregation(xyz, features, sample_inds)
         elif self.sampling == 'random':
-            # Random sampling from the votes
-            num_seed = end_points['seed_xyz'].shape[1]
-            sample_inds = torch.randint(0, num_seed, (batch_size, self.num_proposal), dtype=torch.int).cuda()
-            xyz, features, _ = self.vote_aggregation(xyz, features, sample_inds)
+            if stu_end_points is not None:
+                sample_inds = stu_end_points['aggregated_vote_inds']
+                xyz, features, _ = self.vote_aggregation(xyz, features, sample_inds)
+            else:
+                # Random sampling from the votes
+                num_seed = end_points['seed_xyz'].shape[1]
+                sample_inds = torch.randint(0, num_seed, (batch_size, self.num_proposal), dtype=torch.int).cuda()
+                xyz, features, _ = self.vote_aggregation(xyz, features, sample_inds)
         else:
             log_string('Unknown sampling strategy: %s. Exiting!'%(self.sampling))
             exit()
@@ -107,10 +122,15 @@ class ProposalModule(nn.Module):
 
         # --------- PROPOSAL GENERATION ---------
         net = F.relu(self.bn1(self.conv1(features))) 
-        net = F.relu(self.bn2(self.conv2(net))) 
-        net = self.conv3(net) # (batch_size, 2+3+num_heading_bin*2+num_size_cluster*4, num_proposal)
-
+        net = F.relu(self.bn2(self.conv2(net)))
+        end_points['net2']=net.transpose(2,1) #2021.2.28
+        #torch.save(net,'net2.pth') #2+3+num_heading_bin*2+num_size_cluster*4+self.num_class
+        net = self.conv3(net) # (batch_size, 2+3+num_heading_bin*2+num_size_cluster*4, num_proposal) #2+3+1*2+18*4+18
+        #torch.save(net,'net3.pth')
+        #torch.save(end_points,'end_points_before_score.pth')
         end_points = decode_scores(net, end_points, self.num_class, self.num_heading_bin, self.num_size_cluster, self.mean_size_arr)
+
+
         return end_points
 
 if __name__=='__main__':

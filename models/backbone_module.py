@@ -80,7 +80,7 @@ class Pointnet2Backbone(nn.Module):
 
         return xyz, features
 
-    def forward(self, pointcloud: torch.cuda.FloatTensor, end_points=None):
+    def forward(self, pointcloud: torch.cuda.FloatTensor, end_points=None, stu_end_points=None):#2021.2.28
         r"""
             Forward pass of the network
 
@@ -105,23 +105,46 @@ class Pointnet2Backbone(nn.Module):
         xyz, features = self._break_up_pc(pointcloud)
 
         # --------- 4 SET ABSTRACTION LAYERS ---------
-        xyz, features, fps_inds = self.sa1(xyz, features)
-        end_points['sa1_inds'] = fps_inds
-        end_points['sa1_xyz'] = xyz
-        end_points['sa1_features'] = features
-
-        xyz, features, fps_inds = self.sa2(xyz, features) # this fps_inds is just 0,1,...,1023
-        end_points['sa2_inds'] = fps_inds
-        end_points['sa2_xyz'] = xyz
-        end_points['sa2_features'] = features
-
-        xyz, features, fps_inds = self.sa3(xyz, features) # this fps_inds is just 0,1,...,511
-        end_points['sa3_xyz'] = xyz
-        end_points['sa3_features'] = features
-
-        xyz, features, fps_inds = self.sa4(xyz, features) # this fps_inds is just 0,1,...,255
-        end_points['sa4_xyz'] = xyz
-        end_points['sa4_features'] = features
+        if stu_end_points is not None: #2021.2.28
+            xyz, features, fps_inds = self.sa1(xyz, features,stu_end_points['sa1_inds'])
+            end_points['sa1_inds'] = fps_inds
+            end_points['sa1_xyz'] = xyz
+            end_points['sa1_features'] = features
+        else:
+            xyz, features, fps_inds = self.sa1(xyz, features)
+            end_points['sa1_inds'] = fps_inds
+            end_points['sa1_xyz'] = xyz
+            end_points['sa1_features'] = features
+        if stu_end_points is not None: #2021.2.28
+            xyz, features, fps_inds = self.sa2(xyz, features,stu_end_points['sa2_inds'])  # this fps_inds is just 0,1,...,1023
+            end_points['sa2_inds'] = fps_inds
+            end_points['sa2_xyz'] = xyz
+            end_points['sa2_features'] = features
+        else:
+            xyz, features, fps_inds = self.sa2(xyz, features) # this fps_inds is just 0,1,...,1023
+            end_points['sa2_inds'] = fps_inds
+            end_points['sa2_xyz'] = xyz
+            end_points['sa2_features'] = features
+        if stu_end_points is not None: #2021.2.28
+            xyz, features, fps_inds = self.sa3(xyz, features,stu_end_points['sa3_inds'])  # this fps_inds is just 0,1,...,511
+            end_points['sa3_inds'] = fps_inds  # 2021.2.28
+            end_points['sa3_xyz'] = xyz
+            end_points['sa3_features'] = features
+        else:
+            xyz, features, fps_inds = self.sa3(xyz, features) # this fps_inds is just 0,1,...,511
+            end_points['sa3_inds'] = fps_inds #2021.2.28
+            end_points['sa3_xyz'] = xyz
+            end_points['sa3_features'] = features
+        if stu_end_points is not None: #2021.2.28
+            xyz, features, fps_inds = self.sa4(xyz, features,stu_end_points['sa4_inds'])  # this fps_inds is just 0,1,...,255
+            end_points['sa4_inds'] = fps_inds  # 2021.2.28
+            end_points['sa4_xyz'] = xyz
+            end_points['sa4_features'] = features
+        else:
+            xyz, features, fps_inds = self.sa4(xyz, features)  # this fps_inds is just 0,1,...,255
+            end_points['sa4_inds'] = fps_inds  # 2021.2.28
+            end_points['sa4_xyz'] = xyz
+            end_points['sa4_features'] = features
 
         # --------- 2 FEATURE UPSAMPLING LAYERS --------
         features = self.fp1(end_points['sa3_xyz'], end_points['sa4_xyz'], end_points['sa3_features'], end_points['sa4_features'])

@@ -88,7 +88,8 @@ class ScannetLabedledTwoStreamDataset(Dataset):
         target_bboxes_semcls = np.zeros((MAX_NUM_OBJ))
 
         point_cloud, choices = pc_util.random_sampling(raw_point_cloud, self.num_points, return_choices=True)
-        ema_point_cloud = pc_util.random_sampling(raw_point_cloud, self.num_points, return_choices=False)
+        #ema_point_cloud = pc_util.random_sampling(raw_point_cloud, self.num_points, return_choices=False)
+        ema_point_cloud = point_cloud.copy()  # 2021.2.28
         instance_labels = instance_labels[choices]
         semantic_labels = semantic_labels[choices]
 
@@ -98,6 +99,8 @@ class ScannetLabedledTwoStreamDataset(Dataset):
         # ------------------------------- DATA AUGMENTATION ------------------------------
         flip_x_axis = 0
         flip_y_axis = 0
+        flip_x_axis_ema=0
+        flip_y_axis_ema=0
         rot_mat = np.identity(3)
         scale_ratio = np.ones((1, 3))
         if self.augment:
@@ -107,11 +110,21 @@ class ScannetLabedledTwoStreamDataset(Dataset):
                 point_cloud[:, 0] = -1 * point_cloud[:, 0]
                 target_bboxes[:, 0] = -1 * target_bboxes[:, 0]
 
+            if np.random.random() > 0.5: # 2021.2.28
+                # Flipping along the YZ plane for ema
+                flip_x_axis_ema = 1
+                ema_point_cloud[:, 0] = -1 * ema_point_cloud[:, 0]
+
             if np.random.random() > 0.5:
                 # Flipping along the XZ plane
                 flip_y_axis = 1
                 point_cloud[:, 1] = -1 * point_cloud[:, 1]
                 target_bboxes[:, 1] = -1 * target_bboxes[:, 1]
+
+            if np.random.random() > 0.5: # 2021.2.28
+                # Flipping along the XZ plane for ema
+                flip_y_axis_ema = 1
+                ema_point_cloud[:, 1] = -1 * ema_point_cloud[:, 1]
 
             # Rotation along up-axis/Z-axis
             rot_angle = (np.random.random() * np.pi / 18) - np.pi / 36  # -5 ~ +5 degree
@@ -181,6 +194,9 @@ class ScannetLabedledTwoStreamDataset(Dataset):
         ret_dict['rot_mat'] =  rot_mat.astype(np.float32)
         ret_dict['scale'] = np.array(scale_ratio).astype(np.float32)
 
+        ret_dict['flip_x_axis_ema']= np.array(flip_x_axis_ema).astype(np.int64)#2021.2.28
+        ret_dict['flip_y_axis_ema']= np.array(flip_y_axis_ema).astype(np.int64)#2021.2.28
+
         return ret_dict
 
 
@@ -235,11 +251,13 @@ class ScannetUnlabedledTwoStreamDataset(Dataset):
             raw_point_cloud = np.concatenate([raw_point_cloud, np.expand_dims(height, 1)], 1)
 
         point_cloud, choices = pc_util.random_sampling(raw_point_cloud, self.num_points, return_choices=True)
-        ema_point_cloud = pc_util.random_sampling(raw_point_cloud, self.num_points, return_choices=False)
-
+        #ema_point_cloud = pc_util.random_sampling(raw_point_cloud, self.num_points, return_choices=False)
+        ema_point_cloud=point_cloud.copy() #2021.2.28
         # ------------------------------- DATA AUGMENTATION ------------------------------
         flip_x_axis = 0
         flip_y_axis = 0
+        flip_x_axis_ema=0
+        flip_y_axis_ema=0
         rot_mat = np.identity(3)
         scale_ratio = np.ones((1, 3))
         if self.augment:
@@ -248,10 +266,20 @@ class ScannetUnlabedledTwoStreamDataset(Dataset):
                 flip_x_axis = 1
                 point_cloud[:, 0] = -1 * point_cloud[:, 0]
 
+            if np.random.random() > 0.5: #2021.2.28
+                # Flipping along the YZ plane for ema
+                flip_x_axis_ema = 1
+                ema_point_cloud[:, 0] = -1 * ema_point_cloud[:, 0]
+
             if np.random.random() > 0.5:
                 # Flipping along the XZ plane
                 flip_y_axis = 1
                 point_cloud[:, 1] = -1 * point_cloud[:, 1]
+
+            if np.random.random() > 0.5: #2021.2.28
+                # Flipping along the XZ plane
+                flip_y_axis_ema = 1
+                ema_point_cloud[:, 1] = -1 * ema_point_cloud[:, 1]
 
             # Rotation along up-axis/Z-axis
             rot_angle = (np.random.random() * np.pi / 18) - np.pi / 36  # -5 ~ +5 degree
@@ -275,6 +303,9 @@ class ScannetUnlabedledTwoStreamDataset(Dataset):
         ret_dict['flip_y_axis'] =  np.array(flip_y_axis).astype(np.int64)
         ret_dict['rot_mat'] =  rot_mat.astype(np.float32)
         ret_dict['scale'] = np.array(scale_ratio).astype(np.float32)
+
+        ret_dict['flip_x_axis_ema'] = np.array(flip_x_axis_ema).astype(np.int64) #2021.2.28
+        ret_dict['flip_y_axis_ema'] = np.array(flip_y_axis_ema).astype(np.int64) #2021.2.28
 
         return ret_dict
 

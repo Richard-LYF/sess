@@ -81,11 +81,13 @@ class SunrgbdLabedledTwoStreamDataset(Dataset):
             height = point_cloud[:, 2] - floor_height
             point_cloud = np.concatenate([point_cloud, np.expand_dims(height, 1)], 1)  # (N,4) or (N,7)
 
-        ema_point_cloud = pc_util.random_sampling(point_cloud, self.num_points, return_choices=False)
-
+        #ema_point_cloud = pc_util.random_sampling(point_cloud, self.num_points, return_choices=False) #2021.2.28
+        raw_points=point_cloud.copy() #2021.2.28
         # ------------------------------- DATA AUGMENTATION ------------------------------
         flip_x_axis = 0
         flip_y_axis = 0
+        flip_x_axis_ema=0 #2021.2.28
+        flip_y_axis_ema=0 #2021.2.28
         rot_mat = np.identity(3)
         scale_ratio = np.ones((1,3))
         if self.augment:
@@ -156,6 +158,13 @@ class SunrgbdLabedledTwoStreamDataset(Dataset):
         point_cloud, choices = pc_util.random_sampling(point_cloud, self.num_points, return_choices=True)
         point_votes_mask = point_votes[choices, 0]
         point_votes = point_votes[choices, 1:]
+        ema_point_cloud=raw_points[choices]  #2021.2.28
+        if self.augment:  #2021.2.28
+            if np.random.random() > 0.5: #2021.2.28
+                # Flipping along the YZ plane
+                flip_x_axis_ema = 1
+                ema_point_cloud[:, 0] = -1 * ema_point_cloud[:, 0]
+
 
         ret_dict = {}
         ret_dict['point_clouds'] = point_cloud.astype(np.float32)
@@ -177,6 +186,8 @@ class SunrgbdLabedledTwoStreamDataset(Dataset):
         ret_dict['rot_mat'] =  rot_mat.astype(np.float32)
         ret_dict['scale'] = np.array(scale_ratio).astype(np.float32)
 
+        ret_dict['flip_x_axis_ema'] = np.array(flip_x_axis_ema).astype(np.int64) #2021.2.28
+        ret_dict['flip_y_axis_ema'] = np.array(flip_y_axis_ema).astype(np.int64) #2021.2.28
         return ret_dict
 
 
@@ -232,11 +243,13 @@ class SunrgbdUnlabedledTwoStreamDataset(Dataset):
             raw_point_cloud = np.concatenate([raw_point_cloud, np.expand_dims(height, 1)], 1)
 
         point_cloud, choices = pc_util.random_sampling(raw_point_cloud, self.num_points, return_choices=True)
-        ema_point_cloud = pc_util.random_sampling(raw_point_cloud, self.num_points, return_choices=False)
-
+        #ema_point_cloud = pc_util.random_sampling(raw_point_cloud, self.num_points, return_choices=False)
+        ema_point_cloud=point_cloud.copy()  # 2021.2.28
         # ------------------------------- DATA AUGMENTATION ------------------------------
         flip_x_axis = 0
         flip_y_axis = 0
+        flip_x_axis_ema = 0  # 2021.2.28
+        flip_y_axis_ema = 0  # 2021.2.28
         rot_mat = np.identity(3)
         scale_ratio = np.ones((1, 3))
         if self.augment:
@@ -245,10 +258,20 @@ class SunrgbdUnlabedledTwoStreamDataset(Dataset):
                 flip_x_axis = 1
                 point_cloud[:, 0] = -1 * point_cloud[:, 0]
 
+            if np.random.random() > 0.5:  # 2021.2.28
+                # Flipping along the YZ plane
+                flip_x_axis_ema = 1
+                ema_point_cloud[:, 0] = -1 * ema_point_cloud[:, 0]
+
             if np.random.random() > 0.5:
                 # Flipping along the XZ plane
                 flip_y_axis = 1
                 point_cloud[:, 1] = -1 * point_cloud[:, 1]
+
+            if np.random.random() > 0.5:  # 2021.2.28
+                # Flipping along the XZ plane
+                flip_y_axis_ema = 1
+                ema_point_cloud[:, 1] = -1 * ema_point_cloud[:, 1]
 
             # Rotation along up-axis/Z-axis
             rot_angle = (np.random.random() * np.pi / 3) - np.pi / 6  # -30 ~ +30 degree
@@ -272,5 +295,8 @@ class SunrgbdUnlabedledTwoStreamDataset(Dataset):
         ret_dict['flip_y_axis'] =  np.array(flip_y_axis).astype(np.int64)
         ret_dict['rot_mat'] =  rot_mat.astype(np.float32)
         ret_dict['scale'] = np.array(scale_ratio).astype(np.float32)
+
+        ret_dict['flip_x_axis_ema'] = np.array(flip_x_axis_ema).astype(np.int64)  # 2021.2.28
+        ret_dict['flip_y_axis_ema'] = np.array(flip_y_axis_ema).astype(np.int64)  # 2021.2.28
 
         return ret_dict

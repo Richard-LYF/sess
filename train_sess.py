@@ -23,7 +23,7 @@ from tf_visualizer import Visualizer as TfVisualizer
 from ap_helper import APCalculator, parse_predictions, parse_groundtruths
 import loss_helper_sess
 import ramps
-
+from loss_helper_sess import *
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', default='scannet', help='Dataset name. sunrgbd or scannet. [default: sunrgbd]')
 parser.add_argument('--labeled_sample_list', default='scannetv2_train_0.3.txt',
@@ -41,7 +41,7 @@ parser.add_argument('--cluster_sampling', default='seed_fps',
                             help='Sampling strategy for vote clusters: vote_fps, seed_fps, random [default: vote_fps]')
 parser.add_argument('--ap_iou_thresh', type=float, default=0.25, help='AP IoU threshold [default: 0.25]')
 
-parser.add_argument('--max_epoch', type=int, default=120, help='Epoch to run [default: 100]')
+parser.add_argument('--max_epoch', type=int, default=200, help='Epoch to run [default: 100]')
 parser.add_argument('--batch_size', default='2,8', help='Batch Size during training')
 parser.add_argument('--learning_rate', type=float, default=0.001, help='Initial learning rate [default: 0.001]')
 parser.add_argument('--weight_decay', type=float, default=0, help='Optimization L2 weight decay [default: 0]')
@@ -126,6 +126,16 @@ elif FLAGS.dataset == 'scannet':
                                                            augment=True,
                                                            use_color=FLAGS.use_color,
                                                            use_height=(not FLAGS.no_height))
+    '''
+    print('') #2021.2.28
+    print(LABELED_DATASET[0]) #2021.2.28
+    np.save('labeldata_modi.npy',LABELED_DATASET[0])
+    print('')
+    print('unlabel:',UNLABELED_DATASET[0])
+    np.save('unlabeldata_modi.npy', UNLABELED_DATASET[0])
+    print('')
+    a=input('?')
+    '''
     TEST_DATASET = ScannetDetectionDataset('val',
                                             num_points=NUM_POINT, augment=False,
                                             use_color=FLAGS.use_color, use_height=(not FLAGS.no_height))
@@ -141,12 +151,18 @@ UNLABELED_DATALOADER = DataLoader(UNLABELED_DATASET, batch_size=batch_size_list[
                               shuffle=True, num_workers=batch_size_list[1]//2, worker_init_fn=my_worker_init_fn)
 TEST_DATALOADER = DataLoader(TEST_DATASET, batch_size=BATCH_SIZE,
                              shuffle=False, num_workers=4, worker_init_fn=my_worker_init_fn)
+'''
+it1=next(iter(LABELED_DATALOADER)) #2021.2.28
+it2=next(iter(UNLABELED_DATALOADER))
+print('it1:',it1)
+print('it2:',it2)'''
 
-
+#torch.save(iter(LABELED_DATALOADER),'labeled_dataloader.pt')
+#torch.save(iter(UNLABELED_DATALOADER),'unlabeled_dataloader.pt')
 def create_model(ema=False):
-    model = votenet.VoteNet(num_class=DATASET_CONFIG.num_class,
-                            num_heading_bin=DATASET_CONFIG.num_heading_bin,
-                            num_size_cluster=DATASET_CONFIG.num_size_cluster,
+    model = votenet.VoteNet(num_class=DATASET_CONFIG.num_class,  #scan 18
+                            num_heading_bin=DATASET_CONFIG.num_heading_bin,# scan 1
+                            num_size_cluster=DATASET_CONFIG.num_size_cluster,# scan 18
                             mean_size_arr=DATASET_CONFIG.mean_size_arr,
                             num_proposal=FLAGS.num_target,
                             input_feature_dim=num_input_channel,
@@ -176,6 +192,7 @@ test_detector_criterion = votenet.get_loss
 # Load the Adam optimizer
 optimizer = optim.Adam(detector.parameters(), lr=BASE_LEARNING_RATE, weight_decay=FLAGS.weight_decay)
 
+
 # Load checkpoint if there is any
 if FLAGS.detector_checkpoint is not None and os.path.isfile(FLAGS.detector_checkpoint):
     checkpoint = torch.load(FLAGS.detector_checkpoint)
@@ -185,7 +202,26 @@ if FLAGS.detector_checkpoint is not None and os.path.isfile(FLAGS.detector_check
     epoch = checkpoint['epoch']
     print("Loaded votenet checkpoint %s (epoch: %d)" % (FLAGS.detector_checkpoint, epoch))
 
-
+'''
+#2021/02/18
+if FLAGS.dataset == 'scannet':
+    data='/home/yifan/Code/3DIoUMatch-main/ckpts/scan_0.1_pretrain.pth'
+    print('THIS IS scannet iou votenet pretrained model.')
+else:
+    data = '/home/yifan/Code/3DIoUMatch-main/ckpts/sun_0.05_pretrain.pth'
+    print('THIS IS sunrgbd iou votenet pretrained model.')
+checkpoint=torch.load(data)
+p=checkpoint['model_state_dict']
+lis=list(p.keys())
+l=lis[-1-33:]
+for i in l:
+    del(p[i])
+pretrained_dict=p
+detector.load_state_dict(pretrained_dict)
+ema_detector.load_state_dict(pretrained_dict)
+epoch = checkpoint['epoch']
+print("Loaded votenet checkpoint %s (epoch: %d)" % (data, epoch))
+'''
 # Decay Batchnorm momentum from 0.5 to 0.999
 # note: pytorch's BN momentum (default 0.1)= 1 - tensorflow's BN momentum
 BN_MOMENTUM_INIT = 0.5
@@ -259,16 +295,34 @@ def train_one_epoch(global_step):
         optimizer.zero_grad()
 
         end_points = detector(inputs)
-        ema_end_points = ema_detector(ema_inputs)
+        '''
+        print(end_points) #2021.2.28
+        print(end_points.keys())
+        torch.save(end_points,'end_points.pth')
+        kk=input('?')
+        '''
+        ema_end_points = ema_detector(ema_inputs,end_points) #2021.2.28
 
         # Compute loss and gradients, update parameters.
         for key in batch_data_label:
             assert(key not in end_points)
             end_points[key] = batch_data_label[key]
+        for key in batch_data_label:
+            assert(key not in ema_end_points)
+            ema_end_points[key] = batch_data_label[key]  #2021.3.12
+
         detection_loss, end_points = train_detector_criterion(end_points, DATASET_CONFIG)
         consistency_loss, end_points = train_consistency_criterion(end_points, ema_end_points, DATASET_CONFIG)
 
-        loss = detection_loss + consistency_loss * consistency_weight
+        intra_loss_criterion=loss_helper_sess.get_intra_loss #2021.2.28
+        inter_loss_criterion=loss_helper_sess.get_inter_loss #2021.2.28
+
+        intra_loss=10*intra_loss_criterion(end_points) #2021.2.28
+        inter_loss=100*inter_loss_criterion(end_points,ema_end_points) #2021.2.28
+
+        #loss=intra_loss+inter_loss+detection_loss #2021.2.28
+        loss =intra_loss+inter_loss+detection_loss+ consistency_loss * consistency_weight#2021.3.12
+
         end_points['loss'] = loss
         loss.backward()
         optimizer.step()
@@ -333,6 +387,9 @@ def evaluate_one_epoch():
     metrics_dict = ap_calculator.compute_metrics()
     for key in metrics_dict:
         log_string('eval %s: %f' % (key, metrics_dict[key]))
+
+    TEST_VISUALIZER.log_scalars({'mAP': metrics_dict['mAP'], 'AR': metrics_dict['AR']},
+                                (EPOCH_CNT + 1) * len(LABELED_DATALOADER) * BATCH_SIZE)
 
     mean_loss = stat_dict['detection_loss'] / float(batch_idx + 1)
     return mean_loss

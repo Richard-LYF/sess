@@ -9,7 +9,7 @@ import torch.nn.functional as F
 import numpy as np
 import sys
 import os
-
+from itertools import *
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(os.path.join(ROOT_DIR, 'utils'))
@@ -279,6 +279,15 @@ def compute_center_consistency_loss(end_points, ema_end_points):
     rot_mat = end_points['rot_mat'] #(B,3,3)
     scale_ratio = end_points['scale'] #(B,1,3)
 
+    flip_x_axis_ema=ema_end_points['flip_x_axis_ema'] #2021.3.12
+    flip_y_axis_ema=ema_end_points['flip_y_axis_ema'] #2021.3.12
+
+    inds_to_flip_x_axis_ema = torch.nonzero(flip_x_axis_ema).squeeze(1) #2021.3.12
+    ema_center[inds_to_flip_x_axis_ema, :, 0] = -ema_center[inds_to_flip_x_axis_ema, :, 0] #2021.3.12
+
+    inds_to_flip_y_axis_ema = torch.nonzero(flip_y_axis_ema).squeeze(1) #2021.3.12
+    ema_center[inds_to_flip_y_axis_ema, :, 1] = -ema_center[inds_to_flip_y_axis_ema, :, 1] #2021.3.12
+
     # align ema_center with center based on the input augmentation steps
     inds_to_flip_x_axis = torch.nonzero(flip_x_axis).squeeze(1)
     ema_center[inds_to_flip_x_axis, :, 0] = -ema_center[inds_to_flip_x_axis, :, 0]
@@ -372,8 +381,116 @@ def get_consistency_loss(end_points, ema_end_points, config):
 
     return consistency_loss, end_points
 
+def get_aff_mtx(end_points,sigma=1):
+    num_proposal = end_points['objectness_scores'].shape[1]
+    batch_size = end_points['objectness_scores'].shape[0]
+    S = torch.zeros(batch_size, num_proposal, num_proposal).cuda()
+    # S.requires_grad = True
+    feature = end_points['net2']
+    sig = 10
+    # top=torch.norm(end_points['net2'],dim=2)
+    bot = -2 * (sig ** 2)
+
+    for i in range(num_proposal):
+        num = (torch.norm(feature[:, i, :].unsqueeze(1) - feature, dim=2)) ** 2
+        S[:, i, :] = torch.exp(num / bot)
+
+    return S
+
+def get_cos_mtx(end_points):
+    num_proposal = end_points['objectness_scores'].shape[1]
+    batch_size = end_points['objectness_scores'].shape[0]
+    S = torch.zeros(batch_size, num_proposal, num_proposal).cuda()
+    # S.requires_grad = True
+    feature = end_points['net2']
+    sig = 10
+    # top=torch.norm(end_points['net2'],dim=2)
+    bot = -2 * (sig ** 2)
+
+    for i in range(num_proposal):
+        num = torch.sum((feature[:, i, :].unsqueeze(1) * feature),keepdim=True,dim=2)
+        den =(torch.norm(feature[:,i,:],keepdim=True,dim=1).unsqueeze(1))*torch.norm(feature,keepdim=True,dim=2)
+        S[:, i, :] = (num/den).squeeze()
+
+    return S
+def get_intra_loss(end_points):
+    num_proposal = end_points['objectness_scores'].shape[1]
+    batch_size = end_points['objectness_scores'].shape[0]
+    L = torch.zeros(batch_size, num_proposal, num_proposal).cuda()
+    # L.requires_grad=True
+    object_soft = F.softmax(end_points['objectness_scores'], dim=2)
+    class_soft = F.softmax(end_points['sem_cls_scores'], dim=2)
+    place = torch.nonzero(object_soft[..., 1] > 0.5)
+    # List = []
+    Mask = torch.zeros(batch_size, num_proposal, num_proposal).cuda()
+    for i in place:
+        Mask[i[0].item(), i[1].item()] += 0.5
+        Mask[i[0].item(), :, i[1].item()] += 0.5
+    Mask = (Mask == 1).float()
+
+    key1, key2 = torch.max(class_soft, dim=2)
+
+    for i in range(num_proposal):
+        k2 = key2[:, i].unsqueeze(1)
+        mask = (k2 == key2).float()
+        num = key1[:, i].unsqueeze(1) * key1
+        L[:, i, :] = num * mask
+    L = L * Mask
+
+    S = get_cos_mtx(end_points)
+
+    key1 = torch.sum(L != 0, dim=2)
+    denominator = torch.sum(key1, dim=1).float() + 1e-6  # k power of 2?
+    #denominator = num_proposal**2
+    numerator = torch.sum(L * (1 - S), dim=2)
+    numerator = torch.sum(numerator, dim=1)
+    # print(numerator)
+    intra_loss = torch.sum(numerator / denominator) / batch_size
+    end_points['intra_loss'] = intra_loss
+    return intra_loss
 
 
 
 
+def get_inter_loss(end_points,ema_end_points):
 
+    num_proposal = end_points['objectness_scores'].shape[1]
+    batch_size = end_points['objectness_scores'].shape[0]
+
+    S = get_cos_mtx(end_points)
+    T = get_cos_mtx(ema_end_points)
+
+    Cal = S - T
+
+    norm1 = torch.norm(Cal, dim=2)
+    norm2 = torch.norm(norm1, dim=1) ** 2 / (num_proposal ** 2)
+
+    inter_loss = torch.sum(norm2) / batch_size
+    end_points['inter_loss'] = inter_loss
+    return inter_loss
+
+def get_adj_matrix_knn(end_points):
+    n = 16 #number of the nearest points to find
+    points=end_points['aggregated_vote_xyz']# (batch_size, num_proposal, 3)
+    num_points=points.shape[1]
+    batch_size=points.shape[0]
+    D=torch.empty(batch_size, num_points, num_points).cuda()
+    A=torch.zeros(batch_size, num_points, num_points).cuda()
+    for k in range(batch_size):
+        for i in range(num_points):
+            for j in range(num_points):
+                D[k,i,j]=torch.norm(points[k,i]-points[k,j])
+    list,idx=D.sort(dim=2)
+    idx=idx[...,:n]
+
+    for k in range(batch_size):
+        for i in range(num_points):
+            ind=idx[k,i]
+            A[k,i,ind]=1
+
+    A=A+A.transpose(1,2)
+    return A
+
+def gcn_loss(end_points,ema_end_points):
+    get_adj_matrix_knn(end_points)
+    get_adj_matrix_knn(ema_end_points)

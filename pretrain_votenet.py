@@ -33,6 +33,7 @@ from torch.optim import lr_scheduler
 from torch.utils.data import DataLoader
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+print(BASE_DIR)
 ROOT_DIR = BASE_DIR
 sys.path.append(os.path.join(ROOT_DIR, 'utils'))
 sys.path.append(os.path.join(ROOT_DIR, 'pointnet2'))
@@ -169,9 +170,10 @@ net = Detector(num_class=DATASET_CONFIG.num_class,
                sampling=FLAGS.cluster_sampling)
 
 if torch.cuda.device_count() > 1:
-  log_string("Let's use %d GPUs!" % (torch.cuda.device_count()))
+    log_string("Let's use %d GPUs!" % (torch.cuda.device_count()))
   # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
-  net = nn.DataParallel(net)
+    net = nn.DataParallel(net)
+log_string("We have %d GPUs" %(torch.cuda.device_count()))
 net.to(device)
 criterion = MODEL.get_loss
 

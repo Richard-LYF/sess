@@ -63,7 +63,7 @@ class VotingModule(nn.Module):
         vote_features = vote_features.transpose(2,1).contiguous()
         
         return vote_xyz, vote_features
- 
+
 if __name__=='__main__':
     net = VotingModule(2, 256).cuda()
     xyz, features = net(torch.rand(8,1024,3).cuda(), torch.rand(8,256,1024).cuda())
