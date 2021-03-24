@@ -475,10 +475,11 @@ def get_inter_loss(end_points,ema_end_points):
 
 def get_gcn_loss(end_points,ema_end_points):
     batch_size=end_points['gcn_feature'].shape[0]
+    num_proposal=end_points['gcn_feature'].shape[1]
     fs=end_points['gcn_feature']
     ft=ema_end_points['gcn_feature']
     sum_norm=torch.sum(torch.norm((fs-ft),dim=2))
-    gcn_loss=sum_norm/batch_size
+    gcn_loss=sum_norm/batch_size/num_proposal
 
     end_points['gcn_loss'] = gcn_loss
     return gcn_loss
