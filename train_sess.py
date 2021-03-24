@@ -314,14 +314,16 @@ def train_one_epoch(global_step):
         detection_loss, end_points = train_detector_criterion(end_points, DATASET_CONFIG)
         consistency_loss, end_points = train_consistency_criterion(end_points, ema_end_points, DATASET_CONFIG)
 
-        intra_loss_criterion=loss_helper_sess.get_intra_loss #2021.2.28
-        inter_loss_criterion=loss_helper_sess.get_inter_loss #2021.2.28
+        #intra_loss_criterion=loss_helper_sess.get_intra_loss #2021.2.28
+        #inter_loss_criterion=loss_helper_sess.get_inter_loss #2021.2.28
+        gcn_loss_criterion=loss_helper_sess.get_gcn_loss #2021.3.24
 
-        intra_loss=10*intra_loss_criterion(end_points) #2021.2.28
-        inter_loss=100*inter_loss_criterion(end_points,ema_end_points) #2021.2.28
+        #intra_loss=10*intra_loss_criterion(end_points) #2021.2.28
+        #inter_loss=100*inter_loss_criterion(end_points,ema_end_points) #2021.2.28
+        gcn_loss=gcn_loss_criterion(end_points,ema_end_points)
 
-        #loss=intra_loss+inter_loss+detection_loss #2021.2.28
-        loss =intra_loss+inter_loss+detection_loss+ consistency_loss * consistency_weight#2021.3.12
+        #loss=intra_loss+inter_loss+detection_loss+consistency_loss * consistency_weight #2021.2.28
+        loss =gcn_loss+detection_loss+consistency_loss * consistency_weight#2021.3.12
 
         end_points['loss'] = loss
         loss.backward()

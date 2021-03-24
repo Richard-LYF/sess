@@ -12,10 +12,12 @@ import numpy as np
 import os
 import sys
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(BASE_DIR)
 ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(os.path.join(ROOT_DIR, 'pointnet2'))
+sys.path.append(BASE_DIR)
 from pointnet2_modules import PointnetSAModuleVotes
-#from GCN import *
+from GCN_module import *
 import pointnet2_utils
 
 def decode_scores(net, end_points, num_class, num_heading_bin, num_size_cluster, mean_size_arr):
@@ -46,6 +48,28 @@ def decode_scores(net, end_points, num_class, num_heading_bin, num_size_cluster,
     end_points['sem_cls_scores'] = sem_cls_scores
     return end_points
 
+def get_adj_mtx(end_points):
+
+    radius = 0.5
+    nsample = 8
+    xyz = end_points['aggregated_vote_xyz']
+    batch_size=end_points['aggregated_vote_xyz'].shape[0]
+    num_proposal=end_points['aggregated_vote_xyz'].shape[1]
+
+    #new_xyz = torch.randn(12, 128, 3).cuda()
+    #new_xyz.copy_(xyz)
+
+    idx = pointnet2_utils.ball_query(radius, nsample, xyz, xyz)
+
+    #print(idx.shape)
+    #print(idx)
+    #print(idx[0])
+    A = torch.zeros(batch_size, num_proposal, num_proposal).cuda()
+
+    A = A.scatter(2, idx.long(), 1)
+    #print(A)
+    #print(A.shape)
+    return A
 
 class ProposalModule(nn.Module):
     def __init__(self, num_class, num_heading_bin, num_size_cluster, mean_size_arr, num_proposal, sampling, seed_feat_dim=256):
@@ -68,12 +92,13 @@ class ProposalModule(nn.Module):
                 use_xyz=True,
                 normalize_xyz=True
             )
-    
+
         # Object proposal/detection
         # Objectness scores (2), center residual (3),
         # heading class+residual (num_heading_bin*2), size class+residual(num_size_cluster*4)
         self.conv1 = torch.nn.Conv1d(128,128,1)
         self.conv2 = torch.nn.Conv1d(128,128,1)
+        self.gcn=GCN(128,128,128,0.3)
         self.conv3 = torch.nn.Conv1d(128,2+3+num_heading_bin*2+num_size_cluster*4+self.num_class,1) #2+3+1*2+18*4+18
         self.bn1 = torch.nn.BatchNorm1d(128)
         self.bn2 = torch.nn.BatchNorm1d(128)
@@ -124,6 +149,12 @@ class ProposalModule(nn.Module):
         net = F.relu(self.bn1(self.conv1(features))) 
         net = F.relu(self.bn2(self.conv2(net)))
         end_points['net2']=net.transpose(2,1) #2021.2.28
+
+        A=get_adj_mtx(end_points)
+        net = self.gcn(end_points['net2'], A) ## feed into gcn
+        end_points['gcn_feature'] =net
+        net=net.transpose(2,1)
+
         #torch.save(net,'net2.pth') #2+3+num_heading_bin*2+num_size_cluster*4+self.num_class
         net = self.conv3(net) # (batch_size, 2+3+num_heading_bin*2+num_size_cluster*4, num_proposal) #2+3+1*2+18*4+18
         #torch.save(net,'net3.pth')

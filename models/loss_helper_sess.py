@@ -400,17 +400,21 @@ def get_aff_mtx(end_points,sigma=1):
 def get_cos_mtx(end_points):
     num_proposal = end_points['objectness_scores'].shape[1]
     batch_size = end_points['objectness_scores'].shape[0]
-    S = torch.zeros(batch_size, num_proposal, num_proposal).cuda()
+    #S = torch.zeros(batch_size, num_proposal, num_proposal).cuda()
     # S.requires_grad = True
     feature = end_points['net2']
-    sig = 10
+    #sig = 10
     # top=torch.norm(end_points['net2'],dim=2)
-    bot = -2 * (sig ** 2)
+    #bot = -2 * (sig ** 2)
+    S=F.cosine_similarity(feature[:, :, None, :], feature[:, None, :, :], dim=3).cuda()
 
+
+    '''
     for i in range(num_proposal):
         num = torch.sum((feature[:, i, :].unsqueeze(1) * feature),keepdim=True,dim=2)
         den =(torch.norm(feature[:,i,:],keepdim=True,dim=1).unsqueeze(1))*torch.norm(feature,keepdim=True,dim=2)
-        S[:, i, :] = (num/den).squeeze()
+        S[:, i, :] = (num/den).squeeze()'''
+
 
     return S
 def get_intra_loss(end_points):
@@ -468,6 +472,17 @@ def get_inter_loss(end_points,ema_end_points):
     inter_loss = torch.sum(norm2) / batch_size
     end_points['inter_loss'] = inter_loss
     return inter_loss
+
+def get_gcn_loss(end_points,ema_end_points):
+    batch_size=end_points['gcn_feature'].shape[0]
+    fs=end_points['gcn_feature']
+    ft=ema_end_points['gcn_feature']
+    sum_norm=torch.sum(torch.norm((fs-ft),dim=2))
+    gcn_loss=sum_norm/batch_size
+
+    end_points['gcn_loss'] = gcn_loss
+    return gcn_loss
+
 
 def get_adj_matrix_knn(end_points):
     n = 16 #number of the nearest points to find
