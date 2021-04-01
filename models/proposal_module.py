@@ -50,8 +50,8 @@ def decode_scores(net, end_points, num_class, num_heading_bin, num_size_cluster,
 
 def get_adj_mtx(end_points):
 
-    radius = 0.5
-    nsample = 8
+    radius = 1.2
+    nsample = 16
     xyz = end_points['aggregated_vote_xyz']
     batch_size=end_points['aggregated_vote_xyz'].shape[0]
     num_proposal=end_points['aggregated_vote_xyz'].shape[1]
@@ -67,8 +67,31 @@ def get_adj_mtx(end_points):
     A = torch.zeros(batch_size, num_proposal, num_proposal).cuda()
 
     A = A.scatter(2, idx.long(), 1)
+    eye=torch.eye(num_proposal,num_proposal).cuda()
+    A=A+eye
+    A=((A+A.transpose(1,2))!=0).float()
+
+    diag = torch.diagonal(A,dim1=-2,dim2=-1)
+    a_diag = torch.diag_embed(diag)
+    A=A-a_diag
+    
     #print(A)
     #print(A.shape)
+    eps = np.finfo(float).eps
+    '''
+    D = A.sum(2)  # (num_nodes,)
+    D_sqrt_inv = torch.sqrt(1.0 / (D + eps))
+    D_sqrt_inv = torch.diag_embed(D_sqrt_inv).cuda()
+    A= D_sqrt_inv @ A @ D_sqrt_inv
+    '''
+    D = A.sum(2)  # (num_nodes,)
+    D_sqrt_inv = 1.0 / (D + eps)
+    D_sqrt_inv = torch.diag_embed(D_sqrt_inv).cuda()
+    A = D_sqrt_inv @ A
+    diag = torch.diagonal(A, dim1=-2, dim2=-1)-1
+    a_diag = torch.diag_embed(diag)
+    A=A-a_diag
+
     return A
 
 class ProposalModule(nn.Module):
@@ -148,10 +171,11 @@ class ProposalModule(nn.Module):
         # --------- PROPOSAL GENERATION ---------
         net = F.relu(self.bn1(self.conv1(features))) 
         net = F.relu(self.bn2(self.conv2(net)))
-        end_points['net2']=net.transpose(2,1) #2021.2.28
+        net=net.transpose(2,1)
+        end_points['net2']=net #2021.2.28
 
         A=get_adj_mtx(end_points)
-        net = self.gcn(end_points['net2'], A) ## feed into gcn
+        net = self.gcn(net, A) ## feed into gcn
         end_points['gcn_feature'] =net
         net=net.transpose(2,1)
 
