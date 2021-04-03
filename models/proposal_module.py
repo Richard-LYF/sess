@@ -18,6 +18,7 @@ sys.path.append(os.path.join(ROOT_DIR, 'pointnet2'))
 sys.path.append(BASE_DIR)
 from pointnet2_modules import PointnetSAModuleVotes
 from GCN_module import *
+from GAT_module import *
 import pointnet2_utils
 
 def decode_scores(net, end_points, num_class, num_heading_bin, num_size_cluster, mean_size_arr):
@@ -48,32 +49,65 @@ def decode_scores(net, end_points, num_class, num_heading_bin, num_size_cluster,
     end_points['sem_cls_scores'] = sem_cls_scores
     return end_points
 
-def get_adj_mtx(end_points):
+def get_adj_matrix_knn(end_points):
+    n = 16 #number of the nearest points to find
+    points=end_points['aggregated_vote_xyz']# (batch_size, num_proposal, 3)
+    num_points=points.shape[1]
+    batch_size=points.shape[0]
+    D=torch.zeros(batch_size, num_points, num_points).cuda()
+    A=torch.zeros(batch_size, num_points, num_points).cuda()
 
+    for i in range(num_points):
+        batch_point=points[:,i,:].unsqueeze(1)
+        distance=torch.norm(points-batch_point,dim=2)
+        D[:,i,:]=distance
+    '''
+    for k in range(batch_size):
+        for i in range(num_points):
+            for j in range(num_points):
+                D[k,i,j]=torch.norm(points[k,i]-points[k,j])'''
+
+    list,idx=D.sort(dim=2)
+    idx=idx[...,:n]
+    '''
+    for k in range(batch_size):
+        for i in range(num_points):
+            ind=idx[k,i]
+            A[k,i,ind]=1'''
+    A = A.scatter(2, idx.long(), 1)
+    A = ((A + A.transpose(1, 2)) != 0).float()
+    return A
+
+def get_adj_mtx(end_points):
+    '''
     radius = 1.2
     nsample = 16
     xyz = end_points['aggregated_vote_xyz']
     batch_size=end_points['aggregated_vote_xyz'].shape[0]
     num_proposal=end_points['aggregated_vote_xyz'].shape[1]
-
+    '''
     #new_xyz = torch.randn(12, 128, 3).cuda()
     #new_xyz.copy_(xyz)
 
-    idx = pointnet2_utils.ball_query(radius, nsample, xyz, xyz)
+    #idx = pointnet2_utils.ball_query(radius, nsample, xyz, xyz)
 
     #print(idx.shape)
     #print(idx)
     #print(idx[0])
-    A = torch.zeros(batch_size, num_proposal, num_proposal).cuda()
+    #A = torch.zeros(batch_size, num_proposal, num_proposal).cuda()
 
-    A = A.scatter(2, idx.long(), 1)
-    eye=torch.eye(num_proposal,num_proposal).cuda()
-    A=A+eye
-    A=((A+A.transpose(1,2))!=0).float()
+    #A = A.scatter(2, idx.long(), 1)
+    #eye=torch.eye(num_proposal,num_proposal).cuda()
+    #A=A+eye
+    #A=((A+A.transpose(1,2))!=0).float()
 
+
+
+    A = get_adj_matrix_knn(end_points)
+    '''
     diag = torch.diagonal(A,dim1=-2,dim2=-1)
     a_diag = torch.diag_embed(diag)
-    A=A-a_diag
+    A=A-a_diag'''
     
     #print(A)
     #print(A.shape)
@@ -88,6 +122,7 @@ def get_adj_mtx(end_points):
     D_sqrt_inv = 1.0 / (D + eps)
     D_sqrt_inv = torch.diag_embed(D_sqrt_inv).cuda()
     A = D_sqrt_inv @ A
+
     diag = torch.diagonal(A, dim1=-2, dim2=-1)-1
     a_diag = torch.diag_embed(diag)
     A=A-a_diag
@@ -121,7 +156,8 @@ class ProposalModule(nn.Module):
         # heading class+residual (num_heading_bin*2), size class+residual(num_size_cluster*4)
         self.conv1 = torch.nn.Conv1d(128,128,1)
         self.conv2 = torch.nn.Conv1d(128,128,1)
-        self.gcn=GCN(128,128,128,0.3)
+        #self.gcn=GCN(128,128,128,0.3)
+        self.gat=GAT(128,128,128,0.3,0.2,4)
         self.conv3 = torch.nn.Conv1d(128,2+3+num_heading_bin*2+num_size_cluster*4+self.num_class,1) #2+3+1*2+18*4+18
         self.bn1 = torch.nn.BatchNorm1d(128)
         self.bn2 = torch.nn.BatchNorm1d(128)
@@ -175,8 +211,10 @@ class ProposalModule(nn.Module):
         end_points['net2']=net #2021.2.28
 
         A=get_adj_mtx(end_points)
-        net = self.gcn(net, A) ## feed into gcn
-        end_points['gcn_feature'] =net
+        #net = self.gcn(net, A) ## feed into gcn
+        net = self.gat(net, A)
+        #end_points['gcn_feature'] =net
+        end_points['gat_feature'] = net
         net=net.transpose(2,1)
 
         #torch.save(net,'net2.pth') #2+3+num_heading_bin*2+num_size_cluster*4+self.num_class
