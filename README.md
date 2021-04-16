@@ -1,3 +1,10 @@
+# Self-Ensembling Semi-Supervised 3D Object Detection with Graph-Level Consistency
+Created by <a href="https://github.com/Richard-LYF" target="_blank">Yifan Liu</a> from 
+<a href="http://www.nus.edu.sg/" target="_blank">National University of Singapore</a>
+
+This work is an extension based on SESS. The instructions of running the code is the same as SESS's.
+
+The Readme.md of original SESS is shown below.
 # SESS: Self-Ensembling Semi-Supervised 3D Object Detection
 Created by <a href="https://github.com/Na-Z" target="_blank">Na Zhao</a> from 
 <a href="http://www.nus.edu.sg/" target="_blank">National University of Singapore</a>
