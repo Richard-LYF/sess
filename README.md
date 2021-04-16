@@ -5,8 +5,7 @@ Created by <a href="https://github.com/Richard-LYF" target="_blank">Yifan Liu</a
 This work is an extension based on SESS. The instructions of running the code is the same as SESS's.
 
 The architecture of the new model is as follows:
-
-![image](https://user-images.githubusercontent.com/48831875/115020235-df414800-9eec-11eb-86f2-09e817d8ccda.png)
+![structure](https://user-images.githubusercontent.com/48831875/115020625-6f7f8d00-9eed-11eb-8a1d-059b3e81de47.png)
 
 The Readme.md of original SESS is shown below.
 # SESS: Self-Ensembling Semi-Supervised 3D Object Detection
